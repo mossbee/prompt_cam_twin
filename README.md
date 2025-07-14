@@ -197,8 +197,59 @@ CUDA_VISIBLE_DEVICES=0  python visualize.py --config ./experiment/config/prompt_
 - `vis_outdir`: output directory. (default: visualization/)
 </details>
 
+### Model Evaluation and Testing:
 
+After training is complete, evaluate your model performance and find the optimal threshold:
 
+```bash
+# Comprehensive evaluation on test set
+python evaluate_twin_verification.py \
+    --checkpoint ./output/twin_verification/.../checkpoint_stage2_best_epoch_X.pth \
+    --config experiment/config/twin_verification/dinov2/args.yaml \
+    --output_dir ./evaluation_results
+
+# For Kaggle environment:
+!python evaluate_twin_verification.py \
+    --checkpoint /path/to/your/best/checkpoint.pth \
+    --config experiment/config/twin_verification/dinov2/args.yaml \
+    --output_dir /kaggle/working/evaluation_results
+```
+
+**Evaluation outputs:**
+- 📊 **evaluation_plots.png**: ROC curves, confusion matrix, threshold analysis
+- 📋 **evaluation_results.json**: Comprehensive metrics (AUC, EER, optimal threshold)
+- 📝 **detailed_predictions.csv**: Per-sample predictions for error analysis
+
+**Key metrics to look for:**
+- **ROC AUC > 0.90**: Excellent discrimination ability
+- **Equal Error Rate < 0.15**: Good balance of false positives/negatives  
+- **Accuracy > 85%**: Strong overall performance
+- **Twin Discrimination**: Performance on hardest cases (identical twins)
+
+### Quick Performance Check:
+
+For a quick evaluation without saving detailed results:
+
+```python
+import torch
+from model.twin_prompt_cam import TwinPromptCAM, TwinPromptCAMConfig
+
+# Load your best checkpoint
+config = TwinPromptCAMConfig(model='dinov2', stage1_training=False)
+model = TwinPromptCAM(config, num_persons=356)
+
+checkpoint = torch.load('checkpoint_stage2_best_epoch_X.pth')
+model.load_state_dict(checkpoint['model_state_dict'])
+model.eval()
+
+# Test on a pair of images
+with torch.no_grad():
+    similarity = model(img1, img2, person1_idx, person2_idx, mode='verification')
+    probability = torch.sigmoid(similarity)
+    
+    # Use your optimal threshold (found from evaluation)
+    is_same_person = probability > optimal_threshold
+```
 ## :fire: Training
 
 ### :one: Pretrained weights
