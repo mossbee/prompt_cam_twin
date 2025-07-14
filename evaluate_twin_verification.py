@@ -413,7 +413,18 @@ def main():
     
     # Setup data loader for test set
     print("📊 Loading test dataset...")
-    _, _, test_loader = get_loader(config, None)
+    
+    # Create a simple logger mock for the evaluation
+    class SimpleLogger:
+        def info(self, msg):
+            print(f"ℹ️  {msg}")
+        def warning(self, msg):
+            print(f"⚠️  {msg}")
+        def error(self, msg):
+            print(f"❌ {msg}")
+    
+    logger = SimpleLogger()
+    _, _, test_loader = get_loader(config, logger)
     
     if test_loader is None:
         print("❌ No test set found! Make sure your dataset has test data.")
