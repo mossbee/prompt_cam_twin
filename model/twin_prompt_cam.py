@@ -162,10 +162,13 @@ class TwinPromptCAM(nn.Module):
             person_idx = person_indices[batch_idx].item()
             if person_idx < self.num_persons:
                 # Use person-specific prompt to modulate features
-                person_prompt = self.person_prompts.prompt_embeddings[0, person_idx]  # [embed_dim]
+                person_prompt = self.person_prompts.prompt_embeddings[0, person_idx]  # [embed_dim=768]
+                
+                # Project person prompt to feature space to match dimensions
+                person_feature_weights = self.feature_projector(person_prompt.unsqueeze(0)).squeeze(0)  # [feature_dim=256]
                 
                 # Simple modulation: element-wise multiplication with learnable scaling
-                modulation_weights = torch.sigmoid(person_prompt)  # Ensure positive weights
+                modulation_weights = torch.sigmoid(person_feature_weights)  # Ensure positive weights [256]
                 features[batch_idx] = features[batch_idx] * modulation_weights
         
         return features
