@@ -253,3 +253,8 @@ class TwinPromptCAMConfig:
         self.vpt_num = vpt_num
         self.vpt_mode = vpt_mode
         self.stage1_training = stage1_training
+        
+        # Required attributes for vision transformer compatibility
+        self.train_type = 'prompt_cam'  # Use prompt_cam training type
+        self.vpt_dropout = 0.1  # Default VPT dropout
+        self.vpt_layer = None   # Use all layers by default
