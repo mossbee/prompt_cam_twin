@@ -379,8 +379,37 @@ def main():
     
     # Load checkpoint
     print(f"📦 Loading checkpoint from {args.checkpoint}")
-    checkpoint = torch.load(args.checkpoint, map_location='cpu')
-    model.load_state_dict(checkpoint['model_state_dict'])
+    try:
+        # First try with weights_only=True (safe)
+        checkpoint = torch.load(args.checkpoint, map_location='cpu', weights_only=True)
+    except Exception as e:
+        print(f"⚠️  Safe loading failed, trying with weights_only=False...")
+        # Fallback to weights_only=False (less safe but needed for some checkpoints)
+        checkpoint = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
+    
+    # Handle different checkpoint formats
+    if isinstance(checkpoint, dict):
+        if 'model_state_dict' in checkpoint:
+            model_state_dict = checkpoint['model_state_dict']
+        elif 'state_dict' in checkpoint:
+            model_state_dict = checkpoint['state_dict']
+        else:
+            # Assume the entire checkpoint is the state dict
+            model_state_dict = checkpoint
+    else:
+        model_state_dict = checkpoint
+    
+    # Load the state dict
+    try:
+        model.load_state_dict(model_state_dict)
+        print("✅ Model loaded successfully")
+    except Exception as e:
+        print(f"❌ Error loading model state dict: {e}")
+        print("🔍 Available keys in checkpoint:")
+        if isinstance(checkpoint, dict):
+            for key in checkpoint.keys():
+                print(f"   - {key}")
+        return
     
     # Setup data loader for test set
     print("📊 Loading test dataset...")
