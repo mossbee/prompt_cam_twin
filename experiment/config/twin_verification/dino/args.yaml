@@ -33,7 +33,7 @@ save_freq: 5
 final_run: true
 
 # Experiment tracking
-tracking_mode: "mlflow"  # Options: "mlflow", "wandb", "none"
+tracking_mode: "wandb"  # Options: "mlflow", "wandb", "none"
 wandb_entity: "hunchoquavodb-hanoi-university-of-science-and-technology"
 
 # Hardware

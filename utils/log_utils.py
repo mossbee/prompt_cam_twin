@@ -36,7 +36,9 @@ def collect_env_info():
     has_cuda = torch.cuda.is_available()
     data.append(("CUDA available", has_cuda))
     if has_cuda:
-        data.append(("CUDA ID", os.environ["CUDA_VISIBLE_DEVICES"]))
+        # Handle case where CUDA_VISIBLE_DEVICES is not set (e.g., in Kaggle)
+        cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "all")
+        data.append(("CUDA ID", cuda_devices))
         devices = defaultdict(list)
         for k in range(torch.cuda.device_count()):
             devices[torch.cuda.get_device_name(k)].append(str(k))

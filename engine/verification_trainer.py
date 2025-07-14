@@ -6,8 +6,19 @@ import os
 import time
 from utils.verification_metrics import VerificationMetrics, TwinVerificationAnalyzer
 from utils.setup_logging import get_logger
-import mlflow
-import wandb
+
+# Optional imports for experiment tracking
+try:
+    import mlflow
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
 
 logger = get_logger("TwinVerificationTrainer")
 
@@ -45,7 +56,7 @@ class VerificationTrainer:
         self.identity_criterion = nn.CrossEntropyLoss()
         
         # Setup mixed precision training
-        self.scaler = GradScaler() if params.use_amp else None
+        self.scaler = GradScaler() if getattr(params, 'use_amp', False) else None
         
         # Metrics
         self.train_metrics = VerificationMetrics()
@@ -62,12 +73,15 @@ class VerificationTrainer:
     
     def _setup_optimizer(self, trainable_params):
         """Setup optimizer"""
+        lr = self.params.lr
+        weight_decay = getattr(self.params, 'weight_decay', 0.01)  # Default weight decay
+        
         if self.params.optimizer == 'adam':
-            return optim.Adam(trainable_params, lr=self.params.lr, weight_decay=self.params.weight_decay)
+            return optim.Adam(trainable_params, lr=lr, weight_decay=weight_decay)
         elif self.params.optimizer == 'adamw':
-            return optim.AdamW(trainable_params, lr=self.params.lr, weight_decay=self.params.weight_decay)
+            return optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
         elif self.params.optimizer == 'sgd':
-            return optim.SGD(trainable_params, lr=self.params.lr, momentum=0.9, weight_decay=self.params.weight_decay)
+            return optim.SGD(trainable_params, lr=lr, momentum=0.9, weight_decay=weight_decay)
         else:
             raise ValueError(f"Unknown optimizer: {self.params.optimizer}")
     
@@ -83,14 +97,24 @@ class VerificationTrainer:
         self.tracking_mode = getattr(self.params, 'tracking_mode', 'none')
         
         if self.tracking_mode == 'mlflow':
-            mlflow.start_run()
-            mlflow.log_params(vars(self.params))
+            if MLFLOW_AVAILABLE:
+                mlflow.start_run()
+                mlflow.log_params(vars(self.params))
+                logger.info("MLFlow tracking initialized")
+            else:
+                logger.warning("MLFlow not available, switching to no tracking")
+                self.tracking_mode = 'none'
         elif self.tracking_mode == 'wandb':
-            wandb.init(
-                project="twin-face-verification",
-                entity=getattr(self.params, 'wandb_entity', None),
-                config=vars(self.params)
-            )
+            if WANDB_AVAILABLE:
+                wandb.init(
+                    project="twin-face-verification",
+                    entity=getattr(self.params, 'wandb_entity', None),
+                    config=vars(self.params)
+                )
+                logger.info("WandB tracking initialized")
+            else:
+                logger.warning("WandB not available, switching to no tracking")
+                self.tracking_mode = 'none'
     
     def train_stage1_identity(self, train_loader, val_loader, num_epochs):
         """
@@ -356,15 +380,15 @@ class VerificationTrainer:
     
     def _log_metrics(self, metrics):
         """Log metrics to tracking system"""
-        if self.tracking_mode == 'mlflow':
+        if self.tracking_mode == 'mlflow' and MLFLOW_AVAILABLE:
             for key, value in metrics.items():
                 mlflow.log_metric(key, value, step=self.epoch)
-        elif self.tracking_mode == 'wandb':
+        elif self.tracking_mode == 'wandb' and WANDB_AVAILABLE:
             wandb.log(metrics, step=self.epoch)
     
     def close_tracking(self):
         """Close experiment tracking"""
-        if self.tracking_mode == 'mlflow':
+        if self.tracking_mode == 'mlflow' and MLFLOW_AVAILABLE:
             mlflow.end_run()
-        elif self.tracking_mode == 'wandb':
+        elif self.tracking_mode == 'wandb' and WANDB_AVAILABLE:
             wandb.finish()

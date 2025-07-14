@@ -79,6 +79,19 @@ transforms.Normalize(                   # ImageNet normalization
 
 **No resizing, cropping, or other preprocessing** - your images are loaded directly as-is.
 
+### Kaggle Usage:
+```python
+# For Kaggle environment, set up WandB tracking:
+import os
+from kaggle_secrets import UserSecretsClient
+
+user_secrets = UserSecretsClient()
+os.environ["WANDB_API_KEY"] = user_secrets.get_secret("WANDB_API_KEY")
+
+# Run training (configs are already set for WandB)
+!python main.py --config experiment/config/twin_verification/dinov2/args.yaml
+```
+
 ## Environment Setup  
 ```bash 
 conda create -n prompt_cam python=3.7
