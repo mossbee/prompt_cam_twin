@@ -147,6 +147,8 @@ def setup_parser():
                         help='Checkpoint saving frequency (epochs)')
     parser.add_argument('--data_dir', default='data', type=str,
                         help='Directory containing dataset files')
+    parser.add_argument('--resume_checkpoint', type=str, default=None,
+                        help='Path to checkpoint file to resume training from')
                  
     return parser
 
