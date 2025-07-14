@@ -16,6 +16,14 @@ def main():
         if yaml_config:
             args = override_args_with_yaml(args, yaml_config)
 
+    # Handle the --no_stage1_training flag to skip Stage 1
+    if hasattr(args, 'no_stage1_training') and args.no_stage1_training:
+        args.stage1_training = False
+    
+    # If stage1_training is None and we have a resume checkpoint, default to False
+    if args.stage1_training is None:
+        args.stage1_training = not bool(args.resume_checkpoint)
+
     set_seed(args.random_seed)
     start = time.time()
     args.vis_attn= False
@@ -125,8 +133,10 @@ def setup_parser():
     parser.add_argument('--config', type=str, default=None, help='Path to YAML config file')
 
     ########################Twin Verification Specific#########################
-    parser.add_argument('--stage1_training', action='store_true',
+    parser.add_argument('--stage1_training', action='store_true', default=None,
                         help='Enable Stage 1 training (identity classification)')
+    parser.add_argument('--no_stage1_training', action='store_true',
+                        help='Disable Stage 1 training (skip to Stage 2)')
     parser.add_argument('--stage1_epochs', default=30, type=int,
                         help='Number of epochs for Stage 1 training')
     parser.add_argument('--stage2_epochs', default=50, type=int,
