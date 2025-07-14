@@ -65,11 +65,10 @@ def twin_verification_run(params):
             stage1_checkpoint = trainer._save_checkpoint(params.stage1_epochs - 1, 'stage1_final')
             logger.info(f"Stage 1 completed. Checkpoint saved: {stage1_checkpoint}")
             
-            # Switch to Stage 2 datasets if needed
-            if not params.stage1_training:  # This would be set in config for stage 2
-                logger.info("Switching to Stage 2 datasets...")
-                params.stage1_training = False
-                train_loader, val_loader, test_loader = get_loader(params, logger)
+            # Switch to Stage 2 datasets (verification pairs)
+            logger.info("Switching to Stage 2 datasets...")
+            params.stage1_training = False  # Switch to verification mode
+            train_loader, val_loader, test_loader = get_loader(params, logger)
         
         # Stage 2: Verification Training
         logger.info("Starting Stage 2: Verification Training")
