@@ -346,6 +346,8 @@ def main():
                         help='Directory to save evaluation results')
     parser.add_argument('--batch_size', type=int, default=64,
                         help='Batch size for evaluation')
+    parser.add_argument('--data_dir', type=str, default=None,
+                        help='Override data directory path')
     
     args = parser.parse_args()
     
@@ -357,6 +359,10 @@ def main():
     config_dict['stage1_training'] = False
     config_dict['batch_size'] = args.batch_size
     config_dict['test_batch_size'] = args.batch_size
+    
+    # Override data directory if provided
+    if args.data_dir:
+        config_dict['data_dir'] = args.data_dir
     
     # Convert to namespace
     config = argparse.Namespace(**config_dict)

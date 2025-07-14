@@ -160,9 +160,17 @@ def get_twin_datasets(params, logger):
             positive_ratio=0.5,
             hard_negative_ratio=0.8
         )
-        dataset_test = None
+        # For evaluation, we also provide the test dataset
+        dataset_test = TwinPairDataset(
+            test_info_path, test_pairs_path,
+            transform=val_transform,
+            positive_ratio=0.5,
+            hard_negative_ratio=0.8
+        )
     
     logger.info(f"Train dataset size: {len(dataset_train)}")
     logger.info(f"Val dataset size: {len(dataset_val)}")
+    if dataset_test is not None:
+        logger.info(f"Test dataset size: {len(dataset_test)}")
     
     return dataset_train, dataset_val, dataset_test
