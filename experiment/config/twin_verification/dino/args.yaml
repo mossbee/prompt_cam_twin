@@ -1,0 +1,45 @@
+# Twin Face Verification with DINO Configuration
+
+# Dataset
+data: "twin"
+data_dir: "data"
+num_persons: 356
+
+# Model
+model: "dino"
+pretrained_weights: "vit_base_patch16_dino"
+train_type: "twin_verification"
+drop_path_rate: 0.1
+
+# Training - Stage 1 (Identity Classification)
+stage1_training: true
+stage1_epochs: 30
+stage2_epochs: 50
+
+# Optimizer
+optimizer: "adamw"
+lr: 0.001
+weight_decay: 0.01
+batch_size: 32
+test_batch_size: 64
+
+# Scheduler
+scheduler: "cosine"
+
+# Training settings
+epoch: 80
+use_amp: true
+save_freq: 5
+final_run: true
+
+# Experiment tracking
+tracking_mode: "mlflow"  # Options: "mlflow", "wandb", "none"
+wandb_entity: "hunchoquavodb-hanoi-university-of-science-and-technology"
+
+# Hardware
+debug: false
+random_seed: 42
+
+# Verification specific
+positive_ratio: 0.5
+hard_negative_ratio: 0.7
