@@ -158,6 +158,8 @@ class TwinPromptCAM(nn.Module):
         features = self.feature_projector(cls_features)
         
         # Apply person-specific modulation using the learned prompts
+        # Avoid in-place operations to preserve gradients
+        modulated_features = []
         for batch_idx in range(batch_size):
             person_idx = person_indices[batch_idx].item()
             if person_idx < self.num_persons:
@@ -169,7 +171,16 @@ class TwinPromptCAM(nn.Module):
                 
                 # Simple modulation: element-wise multiplication with learnable scaling
                 modulation_weights = torch.sigmoid(person_feature_weights)  # Ensure positive weights [256]
-                features[batch_idx] = features[batch_idx] * modulation_weights
+                
+                # Apply modulation without in-place operation
+                modulated_feature = features[batch_idx] * modulation_weights
+                modulated_features.append(modulated_feature)
+            else:
+                # No modulation for invalid person indices
+                modulated_features.append(features[batch_idx])
+        
+        # Stack the modulated features back into a batch tensor
+        features = torch.stack(modulated_features, dim=0)
         
         return features
     
