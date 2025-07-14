@@ -127,33 +127,41 @@ class TwinPromptCAM(nn.Module):
         """
         batch_size = images.size(0)
         
-        # For now, use a simplified approach that doesn't inject prompts into intermediate layers
-        # but rather uses the person-specific prompts as additional input tokens
+        # Temporarily disable prompt_cam mode to get basic features
+        original_train_type = self.params.train_type
+        self.backbone.params.train_type = 'linear'  # Use standard ViT forward pass
         
-        # Get features from the backbone (standard forward pass)
-        # This should work with any timm ViT model
-        x = self.backbone.forward_features(images)
-        
-        # x should be [B, num_patches + 1, embed_dim] where +1 is for CLS token
-        # Use CLS token for feature extraction
-        if len(x.shape) == 3:
-            cls_features = x[:, 0]  # [B, embed_dim] - CLS token
-        else:
-            # If the output is different, use mean pooling
-            cls_features = x.mean(dim=1)  # [B, embed_dim]
+        try:
+            # Get features from the backbone without prompts
+            x, _ = self.backbone.forward_features(images)
+            
+            # For standard ViT, x is [B, num_patches + 1, embed_dim]
+            # Use global average pooling instead of CLS token for robustness
+            if len(x.shape) == 3 and x.shape[1] > 1:
+                # Skip CLS token and use patch tokens
+                patch_features = x[:, 1:, :]  # [B, num_patches, embed_dim]
+                cls_features = patch_features.mean(dim=1)  # [B, embed_dim]
+            else:
+                # Fallback: use first token
+                cls_features = x[:, 0, :]  # [B, embed_dim]
+                
+        finally:
+            # Restore original train type
+            self.backbone.params.train_type = original_train_type
         
         # Project to feature space
         features = self.feature_projector(cls_features)
         
-        # Apply person-specific modulation
-        # Use person prompts as a simple linear transformation for now
+        # Apply person-specific modulation using prompts
         for batch_idx in range(batch_size):
-            person_idx = person_indices[batch_idx]
-            # Use the first layer prompt as person-specific transformation
-            person_prompt = self.person_prompts.prompt_embeddings[0, person_idx]  # [embed_dim]
-            # Simple element-wise modulation
-            person_weight = torch.sigmoid(person_prompt @ features[batch_idx])
-            features[batch_idx] = features[batch_idx] * person_weight
+            person_idx = person_indices[batch_idx].item()
+            if person_idx < self.num_persons:
+                # Use the first layer prompt as person-specific transformation
+                person_prompt = self.person_prompts.prompt_embeddings[0, person_idx]  # [embed_dim]
+                # Compute attention-like weights
+                attention_weights = torch.softmax(person_prompt.unsqueeze(0) @ features[batch_idx].unsqueeze(1), dim=-1)
+                # Apply modulation
+                features[batch_idx] = features[batch_idx] * attention_weights.squeeze()
         
         return features
     
