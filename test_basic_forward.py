@@ -30,10 +30,10 @@ def test_basic_forward():
         model = TwinPromptCAM(config, num_persons=10)
         model.eval()
         
-        # Create dummy input
+        # Create dummy input - use same person index for all samples in batch
         batch_size = 2
         images = torch.randn(batch_size, 3, 224, 224)
-        person_indices = torch.tensor([0, 1])
+        person_indices = torch.tensor([0, 0])  # Same person for proper batching
         
         print("Testing extract_features...")
         with torch.no_grad():

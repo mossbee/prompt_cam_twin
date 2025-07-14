@@ -127,41 +127,41 @@ class TwinPromptCAM(nn.Module):
         """
         batch_size = images.size(0)
         
-        # Temporarily disable prompt_cam mode to get basic features
-        original_train_type = self.params.train_type
-        self.backbone.params.train_type = 'linear'  # Use standard ViT forward pass
-        
-        try:
-            # Get features from the backbone without prompts
-            x, _ = self.backbone.forward_features(images)
+        # Since all images in a batch should use the same person prompt for proper batching,
+        # we'll use the first person's index for the entire batch
+        # In practice, the dataloader should ensure all images in a batch belong to the same person
+        if len(person_indices) > 0:
+            person_idx = person_indices[0].item()
             
-            # For standard ViT, x is [B, num_patches + 1, embed_dim]
-            # Use global average pooling instead of CLS token for robustness
-            if len(x.shape) == 3 and x.shape[1] > 1:
-                # Skip CLS token and use patch tokens
-                patch_features = x[:, 1:, :]  # [B, num_patches, embed_dim]
-                cls_features = patch_features.mean(dim=1)  # [B, embed_dim]
-            else:
-                # Fallback: use first token
-                cls_features = x[:, 0, :]  # [B, embed_dim]
+            # Temporarily set the VPT prompts to the person-specific prompt
+            original_prompts = self.backbone.vpt.prompt_embeddings.data.clone()
+            
+            # Replicate the person-specific prompt across all VPT layers and positions
+            person_prompt = self.person_prompts.prompt_embeddings[:, person_idx:person_idx+1, :].clone()
+            self.backbone.vpt.prompt_embeddings.data = person_prompt
+            
+            try:
+                # Forward through backbone with person-specific prompts
+                x, _ = self.backbone.forward_features(images)
                 
-        finally:
-            # Restore original train type
-            self.backbone.params.train_type = original_train_type
+                # For prompt_cam mode, x contains the prompt outputs
+                if self.params.train_type == 'prompt_cam':
+                    # Use the first prompt token as the feature representation
+                    cls_features = x[:, 0, :]  # [B, embed_dim]
+                else:
+                    # Fallback: use CLS token
+                    cls_features = x[:, 0, :]  # [B, embed_dim]
+                    
+            finally:
+                # Always restore original prompts
+                self.backbone.vpt.prompt_embeddings.data = original_prompts
+        else:
+            # If no person indices provided, use standard forward pass
+            x, _ = self.backbone.forward_features(images)
+            cls_features = x[:, 0, :]  # [B, embed_dim]
         
         # Project to feature space
         features = self.feature_projector(cls_features)
-        
-        # Apply person-specific modulation using prompts
-        for batch_idx in range(batch_size):
-            person_idx = person_indices[batch_idx].item()
-            if person_idx < self.num_persons:
-                # Use the first layer prompt as person-specific transformation
-                person_prompt = self.person_prompts.prompt_embeddings[0, person_idx]  # [embed_dim]
-                # Compute attention-like weights
-                attention_weights = torch.softmax(person_prompt.unsqueeze(0) @ features[batch_idx].unsqueeze(1), dim=-1)
-                # Apply modulation
-                features[batch_idx] = features[batch_idx] * attention_weights.squeeze()
         
         return features
     

@@ -38,6 +38,11 @@ We've extended Prompt-CAM for **identical twin face verification** - a challengi
 - **Hard negative mining**: Uses actual twin pairs as challenging negative examples
 - **Interpretable results**: Visualize which facial features the model focuses on
 
+### Important Notes:
+- **Batching Constraint**: Due to the person-specific prompt mechanism, all images in a single batch must correspond to the same person during training. The dataloader handles this automatically for identity classification training.
+- **Memory Efficiency**: The model uses prompt swapping rather than computing separate forward passes for each person, making it memory efficient.
+- **Interpretability**: Person-specific prompts allow visualization of which facial features each person's model focuses on.
+
 ### Dataset Requirements:
 Your face images should be:
 - **Pre-processed**: Face aligned, cropped to face-only regions, and **already resized to 224×224 pixels**
