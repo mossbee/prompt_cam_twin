@@ -95,8 +95,12 @@ class TwinVerificationInterpreter:
         
         # Extract person-specific features (NEW: not in original Prompt-CAM)
         with torch.no_grad():
-            features1 = self.model.extract_features(img1_tensor, person_id=person1_id)
-            features2 = self.model.extract_features(img2_tensor, person_id=person2_id)
+            # Convert person IDs to tensors as expected by the model
+            person1_tensor = torch.tensor([person1_id], device=self.device)
+            person2_tensor = torch.tensor([person2_id], device=self.device)
+            
+            features1 = self.model.extract_features(img1_tensor, person1_tensor)
+            features2 = self.model.extract_features(img2_tensor, person2_tensor)
             similarity = F.cosine_similarity(features1, features2).item()
         
         # Verification decision
@@ -393,15 +397,22 @@ def kaggle_twin_analysis():
     img1_path = "/kaggle/input/nd-twin/ND_TWIN_Dataset_224/ND_TWIN_Dataset_224/90018/90018d13.jpg"
     img2_path = "/kaggle/input/nd-twin/ND_TWIN_Dataset_224/ND_TWIN_Dataset_224/90019/90019d13.jpg"  # Twin of 90018
     
-    model = load_model_from_checkpoint(checkpoint_path)
-    interpreter = TwinVerificationInterpreter(model)
-    
-    fig, results = interpreter.analyze_twin_verification(img1_path, img2_path)
-    
-    plt.savefig("/kaggle/working/twin_analysis_example.png", dpi=300, bbox_inches='tight')
-    plt.show()
-    
-    return results
+    try:
+        model = load_model_from_checkpoint(checkpoint_path)
+        interpreter = TwinVerificationInterpreter(model)
+        
+        fig, results = interpreter.analyze_twin_verification(img1_path, img2_path)
+        
+        plt.savefig("/kaggle/working/twin_analysis_example.png", dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        return results
+    except Exception as e:
+        print(f"⚠️  Error in Kaggle analysis: {e}")
+        print("🔄 Falling back to simple analysis...")
+        # Import and use the simple version as fallback
+        import simple_twin_viz
+        return simple_twin_viz.simple_twin_comparison(checkpoint_path, img1_path, img2_path)
 
 
 if __name__ == "__main__":
