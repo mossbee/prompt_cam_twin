@@ -34,8 +34,26 @@ sys.path.append('model')
 sys.path.append('experiment')
 sys.path.append('utils')
 
-from model.twin_prompt_cam import TwinPromptCAM, TwinPromptCAMConfig
-from utils.visual_utils import prune_and_plot_ranked_heads, load_image  # Reuse original utilities
+# Fix Python path issues
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
+try:
+    from model.twin_prompt_cam import TwinPromptCAM, TwinPromptCAMConfig
+except ImportError as e:
+    print(f"⚠️  Import warning: {e}")
+    print("📝 Trying alternative imports...")
+    # Alternative import approach for Kaggle
+    import importlib.util
+    
+    # Load twin_prompt_cam manually
+    spec = importlib.util.spec_from_file_location("twin_prompt_cam", "model/twin_prompt_cam.py")
+    twin_cam_module = importlib.util.module_from_spec(spec)
+    sys.modules["twin_prompt_cam"] = twin_cam_module
+    spec.loader.exec_module(twin_cam_module)
+    
+    TwinPromptCAM = twin_cam_module.TwinPromptCAM
+    TwinPromptCAMConfig = twin_cam_module.TwinPromptCAMConfig
 
 
 class TwinVerificationInterpreter:

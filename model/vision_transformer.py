@@ -20,13 +20,24 @@ from timm.models.vision_transformer import VisionTransformer
 from timm.models.vision_transformer import LayerScale, init_weights_vit_timm, get_init_weights_vit, \
     _load_weights, checkpoint_filter_fn
 ## added for petl
-from utils.setup_logging import get_logger
+try:
+    from utils.setup_logging import get_logger
+    logger = get_logger("Prompt_CAM")
+except ImportError:
+    # Fallback for environments where utils isn't properly recognized
+    import logging
+    logger = logging.getLogger("Prompt_CAM")
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
 from model.block import BlockPETL
 from model.patch_embed import PatchEmbedPETL
 from model.mlp import MlpPETL
 from model.vpt import VPT
-
-logger = get_logger("Prompt_CAM")
 
 
 class VisionTransformerPETL(VisionTransformer):
