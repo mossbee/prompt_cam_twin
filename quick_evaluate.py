@@ -14,9 +14,9 @@ sys.path.append('/kaggle/working/prompt_cam_twin')
 checkpoint_path = "/kaggle/input/nd-twin/checkpoint_stage2_best_epoch_2.pth"  # Adjust this path
 config_path = "experiment/config/twin_verification/dinov2/args.yaml"
 output_dir = "/kaggle/working/evaluation_results"
-data_dir = "/kaggle/input/nd-twin"  # Kaggle data directory
+data_dir = "data"  # JSON files are in the repo (working directory)
 
-# Create the command with data directory override
+# Create the command - data_dir points to JSON files in working directory
 command = f"""
 python evaluate_twin_verification.py \\
     --checkpoint {checkpoint_path} \\
@@ -35,8 +35,10 @@ print(f"Command: {command}")
 # Check if data files exist
 test_info_file = os.path.join(data_dir, "test_dataset_infor.json")
 test_pairs_file = os.path.join(data_dir, "test_twin_pairs.json")
+train_info_file = os.path.join(data_dir, "train_dataset_infor.json")
 
 print(f"\n📋 Checking data files...")
+print(f"   Train info: {train_info_file} - {'✅ Found' if os.path.exists(train_info_file) else '❌ Missing'}")
 print(f"   Test info: {test_info_file} - {'✅ Found' if os.path.exists(test_info_file) else '❌ Missing'}")
 print(f"   Test pairs: {test_pairs_file} - {'✅ Found' if os.path.exists(test_pairs_file) else '❌ Missing'}")
 print(f"   Checkpoint: {checkpoint_path} - {'✅ Found' if os.path.exists(checkpoint_path) else '❌ Missing'}")
