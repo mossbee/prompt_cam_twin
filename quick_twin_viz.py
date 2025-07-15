@@ -63,6 +63,7 @@ class TwinVerificationInterpreter:
         self.model = model.to(device)
         self.model.eval()
         self.device = device
+        self.attention_maps = []
         
         # Image preprocessing (consistent with original)
         self.transform = transforms.Compose([
@@ -70,6 +71,28 @@ class TwinVerificationInterpreter:
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
+        
+        # Register attention hooks
+        self._register_attention_hooks()
+    
+    def _register_attention_hooks(self):
+        """Register hooks to capture attention maps"""
+        self.attention_maps = []
+        
+        def attention_hook(module, input, output):
+            # For BlockPETL or standard attention modules
+            if hasattr(module, 'attn') and hasattr(module.attn, 'attention_weights'):
+                self.attention_maps.append(module.attn.attention_weights.detach().clone())
+            elif len(output) > 1 and isinstance(output[1], torch.Tensor):
+                # Some blocks return (features, attention)
+                self.attention_maps.append(output[1].detach().clone())
+        
+        # Try to hook into the backbone blocks
+        try:
+            for i, block in enumerate(self.model.backbone.blocks):
+                block.register_forward_hook(attention_hook)
+        except:
+            pass  # Will fallback to simple feature extraction
     
     def analyze_twin_verification(self, img1_path, img2_path, person1_id=0, person2_id=1, threshold=0.32):
         """
@@ -101,16 +124,21 @@ class TwinVerificationInterpreter:
             person1_tensor = torch.tensor([person1_id], device=self.device)
             person2_tensor = torch.tensor([person2_id], device=self.device)
             
-            # Get features and attention maps
-            features1 = self.model.extract_features(img1_tensor, person1_tensor)
-            features2 = self.model.extract_features(img2_tensor, person2_tensor)
+            # Clear previous attention maps
+            self.attention_maps = []
             
-            # Get attention maps by running forward pass
-            try:
-                _, attention1 = self.model.backbone(img1_tensor)
-                _, attention2 = self.model.backbone(img2_tensor) 
+            # Get features and capture attention for first image
+            features1 = self.model.extract_features(img1_tensor, person1_tensor)
+            attention1 = self.attention_maps.copy() if self.attention_maps else None
+            
+            # Clear and get attention for second image
+            self.attention_maps = []
+            features2 = self.model.extract_features(img2_tensor, person2_tensor)
+            attention2 = self.attention_maps.copy() if self.attention_maps else None
+            
+            if attention1 and attention2:
                 print("✅ Attention maps extracted successfully")
-            except:
+            else:
                 print("WARNING: Could not extract attention maps, using feature analysis only")
                 attention1 = attention2 = None
             
@@ -207,22 +235,15 @@ class TwinVerificationInterpreter:
                     axes[1, 3].set_title('Attention Analysis', fontsize=12)
                     axes[1, 3].axis('off')
                 else:
-                    # Fallback if attention extraction fails
-                    for i in range(4):
-                        axes[1, i].text(0.5, 0.5, 'Attention maps\nnot available', 
-                                       ha='center', va='center', transform=axes[1, i].transAxes)
-                        axes[1, i].axis('off')
+                    # Create synthetic attention based on feature similarity
+                    self._create_synthetic_attention_visualization(axes[1, :], img1, img2, feat1, feat2)
             except Exception as e:
                 print(f"WARNING: Attention visualization error: {e}")
-                for i in range(4):
-                    axes[1, i].text(0.5, 0.5, 'Attention analysis\nfailed', 
-                                   ha='center', va='center', transform=axes[1, i].transAxes)
-                    axes[1, i].axis('off')
+                # Fallback to synthetic attention
+                self._create_synthetic_attention_visualization(axes[1, :], img1, img2, feat1, feat2)
         else:
-            for i in range(4):
-                axes[1, i].text(0.5, 0.5, 'Attention maps\nnot extracted', 
-                               ha='center', va='center', transform=axes[1, i].transAxes)
-                axes[1, i].axis('off')
+            # Create synthetic attention based on features
+            self._create_synthetic_attention_visualization(axes[1, :], img1, img2, feat1, feat2)
         
         # Row 3: Feature Analysis (original twin-specific analysis)
         feat1_np = feat1[0].cpu().numpy()
@@ -271,9 +292,15 @@ class TwinVerificationInterpreter:
             'attention_correlation': att_corr if 'att_corr' in locals() else None
         }
     
-    def _extract_attention_map(self, attention):
-        """Extract attention map from model output"""
+    def _extract_attention_map(self, attention_list):
+        """Extract attention map from captured attention weights"""
         try:
+            if not attention_list or len(attention_list) == 0:
+                return None
+            
+            # Use the last layer's attention (most semantically meaningful)
+            attention = attention_list[-1]
+            
             if attention is None:
                 return None
             
@@ -282,19 +309,42 @@ class TwinVerificationInterpreter:
                 attention = attention[0]
             
             if len(attention.shape) == 4:  # [batch, heads, seq_len, seq_len]
-                # Average across heads and take CLS token attention
-                att_map = attention[0].mean(0)[0, 1:].reshape(14, 14)  # Assuming 14x14 patches
+                # Average across heads and take CLS token attention to patches
+                batch_size, num_heads, seq_len, _ = attention.shape
+                # CLS token is at position 0, patches start from position 1
+                att_map = attention[0].mean(0)[0, 1:].reshape(int((seq_len-1)**0.5), int((seq_len-1)**0.5))
             elif len(attention.shape) == 3:  # [batch, seq_len, seq_len]
-                att_map = attention[0][0, 1:].reshape(14, 14)
+                seq_len = attention.shape[1]
+                att_map = attention[0][0, 1:].reshape(int((seq_len-1)**0.5), int((seq_len-1)**0.5))
             else:
-                return None
+                # Try to find attention patterns in different formats
+                if attention.dim() >= 2:
+                    # Flatten and try to reshape to square
+                    flat_att = attention.flatten()
+                    if len(flat_att) >= 196:  # 14x14 = 196
+                        att_map = flat_att[:196].reshape(14, 14)
+                    else:
+                        return None
+                else:
+                    return None
+            
+            # Convert to numpy and resize to image size
+            att_map_np = att_map.detach().cpu().numpy()
             
             # Resize to image size and normalize
-            import cv2
-            att_map = cv2.resize(att_map.detach().cpu().numpy(), (224, 224))
-            att_map = (att_map - att_map.min()) / (att_map.max() - att_map.min())
+            try:
+                import cv2
+                att_map_resized = cv2.resize(att_map_np, (224, 224))
+            except:
+                # Fallback using numpy interpolation
+                from scipy.ndimage import zoom
+                scale_factor = 224 / att_map_np.shape[0]
+                att_map_resized = zoom(att_map_np, scale_factor)
             
-            return att_map
+            # Normalize to [0, 1]
+            att_map_norm = (att_map_resized - att_map_resized.min()) / (att_map_resized.max() - att_map_resized.min() + 1e-8)
+            
+            return att_map_norm
             
         except Exception as e:
             print(f"WARNING: Attention extraction error: {e}")
@@ -366,6 +416,72 @@ class TwinVerificationInterpreter:
         ax.set_title('Similarity in Context', fontsize=12)
         ax.legend()
         ax.grid(True, alpha=0.3)
+    
+    def _create_synthetic_attention_visualization(self, axes, img1, img2, feat1, feat2):
+        """Create synthetic attention maps based on feature analysis when real attention isn't available"""
+        print("📊 Creating synthetic attention visualization based on features...")
+        
+        # Create attention-like heatmaps based on image gradients and feature analysis
+        # This gives a rough approximation of what regions might be important
+        
+        # Convert images to grayscale for gradient analysis
+        img1_gray = np.mean(img1, axis=2)
+        img2_gray = np.mean(img2, axis=2)
+        
+        # Compute image gradients (edge detection)
+        grad1_x = np.gradient(img1_gray, axis=1)
+        grad1_y = np.gradient(img1_gray, axis=0)
+        grad1_mag = np.sqrt(grad1_x**2 + grad1_y**2)
+        
+        grad2_x = np.gradient(img2_gray, axis=1)
+        grad2_y = np.gradient(img2_gray, axis=0)
+        grad2_mag = np.sqrt(grad2_x**2 + grad2_y**2)
+        
+        # Normalize gradients to [0, 1]
+        grad1_norm = (grad1_mag - grad1_mag.min()) / (grad1_mag.max() - grad1_mag.min() + 1e-8)
+        grad2_norm = (grad2_mag - grad2_mag.min()) / (grad2_mag.max() - grad2_mag.min() + 1e-8)
+        
+        # Apply gaussian smoothing to make it look more like attention
+        try:
+            from scipy.ndimage import gaussian_filter
+            att_map1_synthetic = gaussian_filter(grad1_norm, sigma=3)
+            att_map2_synthetic = gaussian_filter(grad2_norm, sigma=3)
+        except ImportError:
+            # Fallback without smoothing
+            att_map1_synthetic = grad1_norm
+            att_map2_synthetic = grad2_norm
+        
+        # Show synthetic attention overlays
+        axes[0].imshow(img1)
+        axes[0].imshow(att_map1_synthetic, cmap='hot', alpha=0.5)
+        axes[0].set_title('Person 1 (Synthetic Attention)', fontsize=12)
+        axes[0].axis('off')
+        
+        axes[1].imshow(img2)
+        axes[1].imshow(att_map2_synthetic, cmap='hot', alpha=0.5)
+        axes[1].set_title('Person 2 (Synthetic Attention)', fontsize=12)
+        axes[1].axis('off')
+        
+        # Attention difference
+        att_diff = np.abs(att_map1_synthetic - att_map2_synthetic)
+        im = axes[2].imshow(att_diff, cmap='viridis')
+        axes[2].set_title('Attention Difference (Synthetic)', fontsize=12)
+        axes[2].axis('off')
+        plt.colorbar(im, ax=axes[2], fraction=0.046)
+        
+        # Feature-based similarity analysis
+        feat1_np = feat1[0].cpu().numpy()
+        feat2_np = feat2[0].cpu().numpy()
+        feature_similarity = np.corrcoef(feat1_np, feat2_np)[0, 1]
+        
+        axes[3].text(0.5, 0.5, f'Feature Similarity:\n{feature_similarity:.4f}\n\n(Synthetic attention based\non image gradients)', 
+                    ha='center', va='center', fontsize=12,
+                    transform=axes[3].transAxes,
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor='lightcoral', alpha=0.3))
+        axes[3].set_title('Feature Analysis', fontsize=12)
+        axes[3].axis('off')
+        
+        return feature_similarity
 
 
 def load_model_from_checkpoint(checkpoint_path, config_path=None):
