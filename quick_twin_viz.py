@@ -2,43 +2,7 @@
 """
 Twin Verification Interpretability - Extends Prompt-CAM for Twin Analysis
 
-This script focuses on twin-specific visualization that doesn't exist in the ori        # Row 2: Person         axes[0, 1].axis('off')
-        
-        # Verification result for Person 1's perspective
-        decision_color = 'green' if is_same else 'red'
-        decision_text = 'SAME PERSON' if is_same else 'DIFFERENT PERSON'
-        axes[0, 2].text(0.5, 0.6, f'Verification:\n{decision_text}', 
-                        ha='center', va='center', fontsize=12,
-                        bbox=dict(boxstyle="round,pad=0.3", facecolor=decision_color, alpha=0.3),
-                        transform=axes[0, 2].transAxes)
-        axes[0, 2].text(0.5, 0.3, f'Similarity: {similarity:.4f}\nThreshold: {threshold:.4f}', 
-                        ha='center', va='center', fontsize=10,
-                        transform=axes[0, 2].transAxes)
-        axes[0, 2].set_title('Verification Result', fontsize=14)
-        axes[0, 2].axis('off')
-        
-        # Similarity gauge
-        self._draw_similarity_gauge(axes[0, 3], similarity, threshold) analysis
-        # Original image
-        axes[1, 0].imshow(img2)
-        axes[1, 0].set_title(f'Person {person2_id} (90019)', fontsize=14)
-        axes[1, 0].axis('off')
-        
-        # Feature analysis
-        feat1_np = feat1[0].cpu().numpy()
-        feat2_np = feat2[0].cpu().numpy()
-        correlation = np.corrcoef(feat1_np[:100], feat2_np[:100])[0, 1]
-        
-        # Feature comparison plot
-        feature_dims = min(50, len(feat1_np))
-        x_range = range(feature_dims)
-        axes[1, 2].plot(x_range, feat1_np[:feature_dims], 'b-', alpha=0.7, linewidth=2, label=f'Person {person1_id}')
-        axes[1, 2].plot(x_range, feat2_np[:feature_dims], 'r-', alpha=0.7, linewidth=2, label=f'Person {person2_id}')
-        axes[1, 2].set_title('Feature Comparison', fontsize=12)
-        axes[1, 2].set_xlabel('Feature Dimension')
-        axes[1, 2].set_ylabel('Feature Value')
-        axes[1, 2].legend()
-        axes[1, 2].grid(True, alpha=0.3) Prompt-CAM:
+This script focuses on twin-specific visualization that extends the original Prompt-CAM:
 1. Side-by-side twin comparison (original only shows single images)
 2. Verification similarity scoring (original shows classification confidence)
 3. Person-specific prompt analysis (original uses class prompts)
@@ -212,6 +176,11 @@ class TwinVerificationInterpreter:
     def _create_prompt_cam_style_visualization(self, img1, img2, feat1, feat2, similarity, is_same, threshold, confidence, attention1, attention2, person1_id, person2_id):
         """Create visualization following original Prompt-CAM style with attention overlays"""
         
+        # Compute feature correlation first (needed for visualization)
+        feat1_np = feat1[0].cpu().numpy()
+        feat2_np = feat2[0].cpu().numpy()
+        correlation = np.corrcoef(feat1_np[:100], feat2_np[:100])[0, 1]
+        
         # Create plot similar to original Prompt-CAM demo
         fig, axes = plt.subplots(2, 4, figsize=(20, 10))
         fig.suptitle(f'Twin Verification Analysis (Prompt-CAM Style) - Similarity: {similarity:.4f}', fontsize=16)
@@ -237,6 +206,28 @@ class TwinVerificationInterpreter:
         else:
             axes[0, 1].text(0.5, 0.5, 'Attention\nNot Available', ha='center', va='center', transform=axes[0, 1].transAxes)
         
+        axes[0, 1].axis('off')
+        
+        # Feature comparison plot  
+        feature_dims = min(50, len(feat1_np))
+        x_range = range(feature_dims)
+        axes[0, 2].plot(x_range, feat1_np[:feature_dims], 'b-', alpha=0.7, linewidth=2, label=f'Person {person1_id}')
+        axes[0, 2].plot(x_range, feat2_np[:feature_dims], 'r-', alpha=0.7, linewidth=2, label=f'Person {person2_id}')
+        axes[0, 2].set_title('Feature Comparison', fontsize=12)
+        axes[0, 2].set_xlabel('Feature Dimension')
+        axes[0, 2].set_ylabel('Feature Value')
+        axes[0, 2].legend()
+        axes[0, 2].grid(True, alpha=0.3)
+        
+        # Similarity gauge
+        self._draw_similarity_gauge(axes[0, 3], similarity, threshold)
+        
+        # Row 2: Person 2 and analysis
+        # Original image
+        axes[1, 0].imshow(img2)
+        axes[1, 0].set_title(f'Person {person2_id} (90019)', fontsize=14)
+        axes[1, 0].axis('off')
+        
         if attention2 is not None:
             att_map2 = self._extract_prompt_cam_attention(attention2, img2.shape[:2])
             if att_map2 is not None:
@@ -249,6 +240,19 @@ class TwinVerificationInterpreter:
             axes[1, 1].text(0.5, 0.5, 'Attention\nNot Available', ha='center', va='center', transform=axes[1, 1].transAxes)
         
         axes[1, 1].axis('off')
+        
+        # Decision summary
+        decision_text = f"Similarity: {similarity:.4f}\nThreshold: {threshold:.4f}\n"
+        decision_text += f"Decision: {'SAME' if is_same else 'DIFFERENT'}\n"
+        decision_text += f"Confidence: {confidence:.4f}\n"
+        decision_text += f"Feature Correlation: {correlation:.4f}"
+        
+        color = 'lightgreen' if not is_same else 'lightcoral'  # Green for correct "different", red for incorrect "same"
+        axes[1, 2].text(0.5, 0.5, decision_text, ha='center', va='center', 
+                       transform=axes[1, 2].transAxes, fontsize=12,
+                       bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.7))
+        axes[1, 2].set_title('Verification Decision', fontsize=12)
+        axes[1, 2].axis('off')
         
         if att_map1 is not None and att_map2 is not None:
             # Show attention difference like in original Prompt-CAM

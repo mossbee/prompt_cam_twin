@@ -22,6 +22,7 @@ More information:
 
 Question:
 - Is the idea of Prompt-CAM suitble for my task? (Consider the downstream task characteristic, training data size, etc)
+- In the original paper, author can show the traits that differ twin people through attention map (both image are applied an attention map onto, which part discriminative among two images will brighter). Can we have that ability on identical twin verification task? (Show which details in two faces are differ - maybe the eye, nose etc)
 - If you have any question, ask me.
 
 Things to do:
