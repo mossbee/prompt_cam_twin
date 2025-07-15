@@ -124,7 +124,6 @@ class TwinVerificationInterpreter:
             
             try:
                 # Get features and attention for first image with person1's prompts
-                # Run through backbone with person-specific context
                 features1, attention1 = self._extract_person_features_and_attention(
                     img1_tensor, person1_id)
                 
@@ -132,8 +131,21 @@ class TwinVerificationInterpreter:
                 features2, attention2 = self._extract_person_features_and_attention(
                     img2_tensor, person2_id)
                 
+                # If attention extraction failed, try gradient-based approach
+                if attention1 is None:
+                    print("🔄 Trying gradient-based attention for image 1...")
+                    features1, attention1 = self._extract_gradient_based_attention(
+                        img1_tensor.clone(), person1_id)
+                
+                if attention2 is None:
+                    print("🔄 Trying gradient-based attention for image 2...")
+                    features2, attention2 = self._extract_gradient_based_attention(
+                        img2_tensor.clone(), person2_id)
+                
                 if attention1 is not None and attention2 is not None:
                     print("✅ Person-specific attention maps extracted successfully")
+                elif attention1 is not None or attention2 is not None:
+                    print("⚠️  Partial attention extraction - some maps available")
                 else:
                     print("WARNING: Could not extract person-specific attention maps")
                     attention1 = attention2 = None
@@ -462,51 +474,87 @@ class TwinVerificationInterpreter:
     def _extract_person_features_and_attention(self, img_tensor, person_id):
         """Extract features and attention maps for a specific person following Prompt-CAM approach"""
         try:
-            # For twin verification, we need to simulate the person-specific prompt behavior
-            # Since our model doesn't have the exact same interface as original Prompt-CAM,
-            # we'll extract features normally and then get attention from the backbone
-            
             # Get features using our twin model
             person_tensor = torch.tensor([person_id], device=self.device)
             features = self.model.extract_features(img_tensor, person_tensor)
             
-            # Try to get attention maps from the backbone (following Prompt-CAM approach)
-            # The backbone should return attention maps if vis_attn is True
+            # Extract attention directly from the backbone transformer blocks
+            # We'll hook into the last attention block to get attention maps
+            attention_maps = []
+            
+            def attention_hook(module, input, output):
+                # output is (features, attention_weights)
+                if len(output) > 1 and isinstance(output[1], torch.Tensor):
+                    attention_maps.append(output[1].detach().clone())
+            
+            # Register hook on the last transformer block
             try:
-                _, attention_maps = self.model.backbone(img_tensor)
+                last_block = self.model.backbone.blocks[-1]
+                hook_handle = last_block.register_forward_hook(attention_hook)
                 
-                if attention_maps is not None:
-                    # Follow Prompt-CAM format: attention_maps shape should be [B, heads, seq_len, seq_len]
-                    # For twin verification, we want to see how person_id "looks at" the image
-                    # In original Prompt-CAM: attn_maps[:, :, target_cls, (params.vpt_num+1):]
+                # Run a forward pass to capture attention
+                with torch.no_grad():
+                    _ = self.model.backbone.forward_features(img_tensor)
+                
+                # Remove the hook
+                hook_handle.remove()
+                
+                if attention_maps:
+                    # Get the attention map from the last layer
+                    last_attention = attention_maps[-1]  # [batch, heads, seq_len, seq_len]
                     
-                    # For twins, we use person_id as the "target class" equivalent
-                    # Extract attention from person prompt to image patches
-                    if len(attention_maps.shape) == 4:  # [B, heads, seq_len, seq_len]
-                        batch_size, num_heads, seq_len, _ = attention_maps.shape
+                    # Extract CLS token attention to patches (following Prompt-CAM approach)
+                    if len(last_attention.shape) == 4:
+                        batch_size, num_heads, seq_len, _ = last_attention.shape
+                        # CLS token is at position 0, extract attention to image patches
+                        # Skip CLS token and any prompt tokens
+                        vpt_num = getattr(self.model.backbone.params, 'vpt_num', 1)
+                        cls_to_patches = last_attention[:, :, 0, (vpt_num+1):]  # [batch, heads, num_patches]
                         
-                        # In twin model, person prompts might be at the beginning
-                        # We want attention from person_id token to image patches
-                        if person_id < seq_len:
-                            # Get attention from person_id token to image patches
-                            # Skip first token (CLS) and any prompt tokens
-                            vpt_num = getattr(self.model.backbone.params, 'vpt_num', 1)
-                            person_attention = attention_maps[:, :, person_id, (vpt_num+1):]
-                        else:
-                            # Fallback: use CLS token attention to patches
-                            vpt_num = getattr(self.model.backbone.params, 'vpt_num', 1)
-                            person_attention = attention_maps[:, :, 0, (vpt_num+1):]
-                            
-                        return features, person_attention
+                        print(f"✅ Extracted attention shape: {cls_to_patches.shape}")
+                        return features, cls_to_patches
                     else:
-                        print(f"WARNING: Unexpected attention shape: {attention_maps.shape}")
+                        print(f"WARNING: Unexpected attention shape: {last_attention.shape}")
                         return features, None
                 else:
+                    print("WARNING: No attention maps captured from hook")
                     return features, None
                     
             except Exception as e:
-                print(f"WARNING: Could not extract attention from backbone: {e}")
-                return features, None
+                print(f"WARNING: Could not extract attention using hooks: {e}")
+                
+                # Fallback: try to manually extract attention by modifying the forward pass
+                try:
+                    # Enable attention extraction in the backbone
+                    if hasattr(self.model.backbone.params, 'vis_attn'):
+                        original_vis_attn = self.model.backbone.params.vis_attn
+                        self.model.backbone.params.vis_attn = True
+                        
+                        # Run forward pass
+                        _, attention_output = self.model.backbone(img_tensor)
+                        
+                        # Restore original setting
+                        self.model.backbone.params.vis_attn = original_vis_attn
+                        
+                        if attention_output is not None:
+                            print(f"✅ Extracted attention via backbone: {attention_output.shape}")
+                            # Process the attention following Prompt-CAM format
+                            if len(attention_output.shape) == 4:  # [batch, heads, seq_len, seq_len]
+                                vpt_num = getattr(self.model.backbone.params, 'vpt_num', 1)
+                                cls_to_patches = attention_output[:, :, 0, (vpt_num+1):]
+                                return features, cls_to_patches
+                            else:
+                                return features, attention_output
+                        else:
+                            print("WARNING: Backbone did not return attention maps")
+                            return features, None
+                    else:
+                        print("WARNING: Backbone does not support attention visualization")
+                        return features, None
+                        
+                except Exception as e2:
+                    print(f"WARNING: Fallback attention extraction failed: {e2}")
+                    return features, None
                 
         except Exception as e:
             print(f"WARNING: Error in person-specific feature extraction: {e}")
@@ -607,6 +655,73 @@ class TwinVerificationInterpreter:
             heatmap = plt.cm.hot(attention_map)[:, :, :3]  # Remove alpha channel
             result = image * alpha + heatmap * (1 - alpha)
             return (result * 255).astype(np.uint8)
+    
+    def _extract_gradient_based_attention(self, img_tensor, person_id):
+        """Extract attention using gradient-based methods as fallback"""
+        try:
+            print("📊 Using gradient-based attention extraction...")
+            
+            # Enable gradients for the input
+            img_tensor.requires_grad_(True)
+            
+            # Get features
+            person_tensor = torch.tensor([person_id], device=self.device)
+            features = self.model.extract_features(img_tensor, person_tensor)
+            
+            # Compute gradients with respect to input
+            # Use the norm of features as the target
+            target = features.norm(dim=1).sum()
+            target.backward()
+            
+            # Get gradients
+            gradients = img_tensor.grad
+            
+            if gradients is not None:
+                # Convert gradients to attention-like map
+                # Take the maximum across color channels and remove batch dimension
+                grad_attention = gradients[0].abs().max(dim=0)[0]  # [H, W]
+                
+                # Smooth the gradient map
+                import torch.nn.functional as F
+                grad_attention = grad_attention.unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
+                grad_attention = F.avg_pool2d(grad_attention, kernel_size=3, stride=1, padding=1)
+                grad_attention = grad_attention.squeeze()  # [H, W]
+                
+                # Normalize to [0, 1]
+                min_val = grad_attention.min()
+                max_val = grad_attention.max()
+                if max_val > min_val:
+                    grad_attention = (grad_attention - min_val) / (max_val - min_val)
+                
+                print(f"✅ Created gradient-based attention map: {grad_attention.shape}")
+                
+                # Convert to format similar to transformer attention [1, 1, num_patches]
+                # Downsample to patch grid (e.g., 14x14 for 224x224 image)
+                patch_size = 16  # Common ViT patch size
+                num_patches_per_side = img_tensor.shape[-1] // patch_size
+                
+                grad_attention_downsampled = F.avg_pool2d(
+                    grad_attention.unsqueeze(0).unsqueeze(0), 
+                    kernel_size=patch_size, 
+                    stride=patch_size
+                ).squeeze()  # [14, 14]
+                
+                # Flatten to patch sequence
+                grad_attention_patches = grad_attention_downsampled.flatten().unsqueeze(0).unsqueeze(0)  # [1, 1, 196]
+                
+                return features, grad_attention_patches
+            else:
+                print("WARNING: No gradients available")
+                return features, None
+                
+        except Exception as e:
+            print(f"WARNING: Gradient-based attention extraction failed: {e}")
+            return features, None
+        finally:
+            # Clean up gradients
+            if img_tensor.grad is not None:
+                img_tensor.grad.zero_()
+            img_tensor.requires_grad_(False)
     
 def load_model_from_checkpoint(checkpoint_path, config_path=None):
     """Load twin verification model"""
