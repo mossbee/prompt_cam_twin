@@ -47,3 +47,11 @@ print(f"\n🎯 Running evaluation...")
 
 # Execute
 os.system(command.replace('\\', '').replace('\n', ' '))
+
+print(f"\n✨ Evaluation complete!")
+print(f"\n🎨 Want to visualize twin attention maps?")
+print(f"   Run: python quick_twin_viz.py --img1 <path1> --img2 <path2>")
+print(f"   Example:")
+print(f"   python quick_twin_viz.py \\")
+print(f"       --img1 /kaggle/input/nd-twin/ND_TWIN_Dataset_224/ND_TWIN_Dataset_224/90018/90018d13.jpg \\")
+print(f"       --img2 /kaggle/input/nd-twin/ND_TWIN_Dataset_224/ND_TWIN_Dataset_224/90018/90018d14.jpg")
