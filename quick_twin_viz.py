@@ -96,15 +96,13 @@ class TwinVerificationInterpreter:
     
     def analyze_twin_verification(self, img1_path, img2_path, person1_id=0, person2_id=1, threshold=0.32):
         """
-        Twin-specific analysis that's NOT in original Prompt-CAM:
-        1. Pairwise similarity analysis
-        2. Person-specific prompt comparison  
-        3. Verification decision interpretation
-        4. Discriminative feature analysis
-        5. Person-specific attention visualization
+        Twin-specific analysis following original Prompt-CAM approach:
+        1. Extract person-specific features using person prompts
+        2. Get attention maps showing what each person's prompts focus on
+        3. Compare attention patterns to understand verification decision
         """
         
-        print("🔍 Twin Verification Analysis (Extended Prompt-CAM)")
+        print("🔍 Twin Verification Analysis (Following Prompt-CAM)")
         print(f"👥 Analyzing: {os.path.basename(img1_path)} vs {os.path.basename(img2_path)}")
         print(f"TARGET: Using optimal threshold: {threshold:.4f} (from evaluation)")
         
@@ -118,30 +116,33 @@ class TwinVerificationInterpreter:
         img1_tensor = self.transform(img1).unsqueeze(0).to(self.device)
         img2_tensor = self.transform(img2).unsqueeze(0).to(self.device)
         
-        # Extract person-specific features AND attention maps (NEW: not in original Prompt-CAM)
+        # Extract features and attention maps following Prompt-CAM approach
         with torch.no_grad():
-            # Convert person IDs to tensors as expected by the model
-            person1_tensor = torch.tensor([person1_id], device=self.device)
-            person2_tensor = torch.tensor([person2_id], device=self.device)
+            # Enable attention visualization
+            original_vis_attn = getattr(self.model.backbone.params, 'vis_attn', False)
+            self.model.backbone.params.vis_attn = True
             
-            # Clear previous attention maps
-            self.attention_maps = []
+            try:
+                # Get features and attention for first image with person1's prompts
+                # Run through backbone with person-specific context
+                features1, attention1 = self._extract_person_features_and_attention(
+                    img1_tensor, person1_id)
+                
+                # Get features and attention for second image with person2's prompts  
+                features2, attention2 = self._extract_person_features_and_attention(
+                    img2_tensor, person2_id)
+                
+                if attention1 is not None and attention2 is not None:
+                    print("✅ Person-specific attention maps extracted successfully")
+                else:
+                    print("WARNING: Could not extract person-specific attention maps")
+                    attention1 = attention2 = None
+                    
+            finally:
+                # Restore original setting
+                self.model.backbone.params.vis_attn = original_vis_attn
             
-            # Get features and capture attention for first image
-            features1 = self.model.extract_features(img1_tensor, person1_tensor)
-            attention1 = self.attention_maps.copy() if self.attention_maps else None
-            
-            # Clear and get attention for second image
-            self.attention_maps = []
-            features2 = self.model.extract_features(img2_tensor, person2_tensor)
-            attention2 = self.attention_maps.copy() if self.attention_maps else None
-            
-            if attention1 and attention2:
-                print("✅ Attention maps extracted successfully")
-            else:
-                print("WARNING: Could not extract attention maps, using feature analysis only")
-                attention1 = attention2 = None
-            
+            # Compute similarity
             similarity = F.cosine_similarity(features1, features2).item()
         
         # Verification decision
@@ -153,135 +154,110 @@ class TwinVerificationInterpreter:
         print(f"🎲 Decision Confidence: {confidence:.4f}")
         print(f"📝 Note: These are twins - should be DIFFERENT PERSON but with high similarity")
         
-        # Create twin-specific visualization with attention
-        return self._create_twin_comparison_plot(
+        # Create twin-specific visualization following Prompt-CAM style
+        return self._create_prompt_cam_style_visualization(
             img1_array, img2_array, features1, features2, 
             similarity, is_same_person, threshold, confidence,
-            attention1, attention2
+            attention1, attention2, person1_id, person2_id
         )
     
-    def _create_twin_comparison_plot(self, img1, img2, feat1, feat2, similarity, is_same, threshold, confidence, attention1=None, attention2=None):
-        """Create twin verification visualization with attention maps (NEW - not in original Prompt-CAM)"""
+    def _create_prompt_cam_style_visualization(self, img1, img2, feat1, feat2, similarity, is_same, threshold, confidence, attention1, attention2, person1_id, person2_id):
+        """Create visualization following original Prompt-CAM style with attention overlays"""
         
-        # Create larger plot to include attention maps
-        fig, axes = plt.subplots(3, 4, figsize=(20, 15))
-        fig.suptitle(f'Twin Verification Analysis - Similarity: {similarity:.4f} | Threshold: {threshold:.4f}', fontsize=16)
+        # Create plot similar to original Prompt-CAM demo
+        fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+        fig.suptitle(f'Twin Verification Analysis (Prompt-CAM Style) - Similarity: {similarity:.4f}', fontsize=16)
         
-        # Row 1: Original Images and Decision
+        # Row 1: Person 1 analysis
+        # Original image
         axes[0, 0].imshow(img1)
-        axes[0, 0].set_title('Person 1 (90018)', fontsize=14)
+        axes[0, 0].set_title(f'Person {person1_id} (90018)', fontsize=14)
         axes[0, 0].axis('off')
         
-        axes[0, 1].imshow(img2)
-        axes[0, 1].set_title('Person 2 (90019)', fontsize=14)
+        # Person 1's attention map overlay (following Prompt-CAM approach)
+        if attention1 is not None:
+            att_map1 = self._extract_prompt_cam_attention(attention1, img1.shape[:2])
+            if att_map1 is not None:
+                # Create overlay like original Prompt-CAM
+                overlay1 = self._create_prompt_cam_overlay(img1, att_map1)
+                axes[0, 1].imshow(overlay1)
+                axes[0, 1].set_title(f'Person {person1_id} Attention', fontsize=14)
+            else:
+                axes[0, 1].text(0.5, 0.5, 'Attention\nNot Available', ha='center', va='center', transform=axes[0, 1].transAxes)
+        else:
+            axes[0, 1].text(0.5, 0.5, 'Attention\nNot Available', ha='center', va='center', transform=axes[0, 1].transAxes)
         axes[0, 1].axis('off')
         
-        # Verification decision (Fixed for twins - they SHOULD be same person)
+        # Verification result for Person 1's perspective
         decision_color = 'green' if is_same else 'red'
-        decision_text = 'SAME PERSON [YES]' if is_same else 'DIFFERENT PERSON [NO]'
-        
-        axes[0, 2].text(0.5, 0.7, f'Verification:\n{decision_text}', 
-                        ha='center', va='center', fontsize=12, 
+        decision_text = 'SAME PERSON' if is_same else 'DIFFERENT PERSON'
+        axes[0, 2].text(0.5, 0.6, f'Verification:\n{decision_text}', 
+                        ha='center', va='center', fontsize=12,
                         bbox=dict(boxstyle="round,pad=0.3", facecolor=decision_color, alpha=0.3),
                         transform=axes[0, 2].transAxes)
-        axes[0, 2].text(0.5, 0.4, f'Similarity: {similarity:.4f}', 
-                        ha='center', va='center', fontsize=12,
-                        transform=axes[0, 2].transAxes)
-        axes[0, 2].text(0.5, 0.2, f'Threshold: {threshold:.4f}', 
+        axes[0, 2].text(0.5, 0.3, f'Similarity: {similarity:.4f}\nThreshold: {threshold:.4f}', 
                         ha='center', va='center', fontsize=10,
                         transform=axes[0, 2].transAxes)
-        confidence_text = f'Confidence: {confidence:.4f}'
-        axes[0, 2].text(0.5, 0.05, confidence_text, 
-                        ha='center', va='center', fontsize=10, style='italic',
-                        transform=axes[0, 2].transAxes)
-        axes[0, 2].set_title('Decision', fontsize=14)
+        axes[0, 2].set_title('Verification Result', fontsize=14)
         axes[0, 2].axis('off')
         
         # Similarity gauge
         self._draw_similarity_gauge(axes[0, 3], similarity, threshold)
         
-        # Row 2: Attention Maps (NEW - core Prompt-CAM feature)
-        if attention1 is not None and attention2 is not None:
-            try:
-                # Extract and visualize attention maps
-                att_map1 = self._extract_attention_map(attention1)
-                att_map2 = self._extract_attention_map(attention2)
-                
-                if att_map1 is not None and att_map2 is not None:
-                    # Show attention overlays
-                    axes[1, 0].imshow(img1)
-                    axes[1, 0].imshow(att_map1, cmap='hot', alpha=0.6)
-                    axes[1, 0].set_title('Person 1 Attention', fontsize=12)
-                    axes[1, 0].axis('off')
-                    
-                    axes[1, 1].imshow(img2)
-                    axes[1, 1].imshow(att_map2, cmap='hot', alpha=0.6)
-                    axes[1, 1].set_title('Person 2 Attention', fontsize=12)
-                    axes[1, 1].axis('off')
-                    
-                    # Attention difference
-                    att_diff = np.abs(att_map1 - att_map2)
-                    im = axes[1, 2].imshow(att_diff, cmap='viridis')
-                    axes[1, 2].set_title('Attention Difference', fontsize=12)
-                    axes[1, 2].axis('off')
-                    plt.colorbar(im, ax=axes[1, 2], fraction=0.046)
-                    
-                    # Attention correlation
-                    att_corr = np.corrcoef(att_map1.flatten(), att_map2.flatten())[0, 1]
-                    axes[1, 3].text(0.5, 0.5, f'Attention Correlation:\n{att_corr:.4f}\n\n(How similarly do they\nlook at the image?)', 
-                                   ha='center', va='center', fontsize=12,
-                                   transform=axes[1, 3].transAxes,
-                                   bbox=dict(boxstyle="round,pad=0.3", facecolor='lightblue', alpha=0.3))
-                    axes[1, 3].set_title('Attention Analysis', fontsize=12)
-                    axes[1, 3].axis('off')
-                else:
-                    # Create synthetic attention based on feature similarity
-                    self._create_synthetic_attention_visualization(axes[1, :], img1, img2, feat1, feat2)
-            except Exception as e:
-                print(f"WARNING: Attention visualization error: {e}")
-                # Fallback to synthetic attention
-                self._create_synthetic_attention_visualization(axes[1, :], img1, img2, feat1, feat2)
-        else:
-            # Create synthetic attention based on features
-            self._create_synthetic_attention_visualization(axes[1, :], img1, img2, feat1, feat2)
+        # Row 2: Person 2 analysis
+        # Original image
+        axes[1, 0].imshow(img2)
+        axes[1, 0].set_title(f'Person {person2_id} (90019)', fontsize=14)
+        axes[1, 0].axis('off')
         
-        # Row 3: Feature Analysis (original twin-specific analysis)
+        # Person 2's attention map overlay
+        if attention2 is not None:
+            att_map2 = self._extract_prompt_cam_attention(attention2, img2.shape[:2])
+            if att_map2 is not None:
+                overlay2 = self._create_prompt_cam_overlay(img2, att_map2)
+                axes[1, 1].imshow(overlay2)
+                axes[1, 1].set_title(f'Person {person2_id} Attention', fontsize=14)
+            else:
+                axes[1, 1].text(0.5, 0.5, 'Attention\nNot Available', ha='center', va='center', transform=axes[1, 1].transAxes)
+        else:
+            axes[1, 1].text(0.5, 0.5, 'Attention\nNot Available', ha='center', va='center', transform=axes[1, 1].transAxes)
+        axes[1, 1].axis('off')
+        
+        # Feature analysis
         feat1_np = feat1[0].cpu().numpy()
         feat2_np = feat2[0].cpu().numpy()
+        correlation = np.corrcoef(feat1_np[:100], feat2_np[:100])[0, 1]
         
-        # Feature comparison
+        # Feature comparison plot
         feature_dims = min(50, len(feat1_np))
         x_range = range(feature_dims)
+        axes[1, 2].plot(x_range, feat1_np[:feature_dims], 'b-', alpha=0.7, linewidth=2, label=f'Person {person1_id}')
+        axes[1, 2].plot(x_range, feat2_np[:feature_dims], 'r-', alpha=0.7, linewidth=2, label=f'Person {person2_id}')
+        axes[1, 2].set_title('Feature Comparison', fontsize=12)
+        axes[1, 2].set_xlabel('Feature Dimension')
+        axes[1, 2].set_ylabel('Feature Value')
+        axes[1, 2].legend()
+        axes[1, 2].grid(True, alpha=0.3)
         
-        axes[2, 0].plot(x_range, feat1_np[:feature_dims], 'b-', alpha=0.7, linewidth=2, label='Person 1')
-        axes[2, 0].plot(x_range, feat2_np[:feature_dims], 'r-', alpha=0.7, linewidth=2, label='Person 2')
-        axes[2, 0].set_title('Feature Comparison', fontsize=12)
-        axes[2, 0].set_xlabel('Feature Dimension')
-        axes[2, 0].set_ylabel('Feature Value')
-        axes[2, 0].legend()
-        axes[2, 0].grid(True, alpha=0.3)
-        
-        # Feature differences
-        feature_diff = np.abs(feat1_np - feat2_np)
-        axes[2, 1].bar(range(feature_dims), feature_diff[:feature_dims], 
-                       alpha=0.7, color='purple')
-        axes[2, 1].set_title('Discriminative Features', fontsize=12)
-        axes[2, 1].set_xlabel('Feature Dimension')
-        axes[2, 1].set_ylabel('Absolute Difference')
-        axes[2, 1].grid(True, alpha=0.3)
-        
-        # Similarity distribution context
-        self._plot_similarity_context(axes[2, 2], similarity, threshold)
-        
-        # Feature correlation
-        correlation = np.corrcoef(feat1_np[:100], feat2_np[:100])[0, 1]
-        axes[2, 3].scatter(feat1_np[:100], feat2_np[:100], alpha=0.6, s=10)
-        axes[2, 3].plot([feat1_np[:100].min(), feat1_np[:100].max()], 
-                        [feat1_np[:100].min(), feat1_np[:100].max()], 'r--', alpha=0.8)
-        axes[2, 3].set_title(f'Feature Correlation: {correlation:.3f}', fontsize=12)
-        axes[2, 3].set_xlabel('Person 1 Features')
-        axes[2, 3].set_ylabel('Person 2 Features')
-        axes[2, 3].grid(True, alpha=0.3)
+        # Attention comparison (if available)
+        if attention1 is not None and attention2 is not None and att_map1 is not None and att_map2 is not None:
+            # Show attention difference like in original Prompt-CAM
+            att_diff = np.abs(att_map1 - att_map2)
+            im = axes[1, 3].imshow(att_diff, cmap='viridis')
+            axes[1, 3].set_title('Attention Difference', fontsize=12)
+            axes[1, 3].axis('off')
+            plt.colorbar(im, ax=axes[1, 3], fraction=0.046)
+            
+            att_corr = np.corrcoef(att_map1.flatten(), att_map2.flatten())[0, 1]
+        else:
+            # Show feature correlation instead
+            axes[1, 3].text(0.5, 0.5, f'Feature Correlation:\n{correlation:.4f}\n\n(Attention maps\nnot available)', 
+                           ha='center', va='center', fontsize=12,
+                           transform=axes[1, 3].transAxes,
+                           bbox=dict(boxstyle="round,pad=0.3", facecolor='lightblue', alpha=0.3))
+            axes[1, 3].set_title('Feature Analysis', fontsize=12)
+            axes[1, 3].axis('off')
+            att_corr = None
         
         plt.tight_layout()
         return fig, {
@@ -289,7 +265,7 @@ class TwinVerificationInterpreter:
             'is_same_person': is_same,
             'confidence': confidence,
             'correlation': correlation,
-            'attention_correlation': att_corr if 'att_corr' in locals() else None
+            'attention_correlation': att_corr
         }
     
     def _extract_attention_map(self, attention_list):
@@ -482,8 +458,156 @@ class TwinVerificationInterpreter:
         axes[3].axis('off')
         
         return feature_similarity
-
-
+    
+    def _extract_person_features_and_attention(self, img_tensor, person_id):
+        """Extract features and attention maps for a specific person following Prompt-CAM approach"""
+        try:
+            # For twin verification, we need to simulate the person-specific prompt behavior
+            # Since our model doesn't have the exact same interface as original Prompt-CAM,
+            # we'll extract features normally and then get attention from the backbone
+            
+            # Get features using our twin model
+            person_tensor = torch.tensor([person_id], device=self.device)
+            features = self.model.extract_features(img_tensor, person_tensor)
+            
+            # Try to get attention maps from the backbone (following Prompt-CAM approach)
+            # The backbone should return attention maps if vis_attn is True
+            try:
+                _, attention_maps = self.model.backbone(img_tensor)
+                
+                if attention_maps is not None:
+                    # Follow Prompt-CAM format: attention_maps shape should be [B, heads, seq_len, seq_len]
+                    # For twin verification, we want to see how person_id "looks at" the image
+                    # In original Prompt-CAM: attn_maps[:, :, target_cls, (params.vpt_num+1):]
+                    
+                    # For twins, we use person_id as the "target class" equivalent
+                    # Extract attention from person prompt to image patches
+                    if len(attention_maps.shape) == 4:  # [B, heads, seq_len, seq_len]
+                        batch_size, num_heads, seq_len, _ = attention_maps.shape
+                        
+                        # In twin model, person prompts might be at the beginning
+                        # We want attention from person_id token to image patches
+                        if person_id < seq_len:
+                            # Get attention from person_id token to image patches
+                            # Skip first token (CLS) and any prompt tokens
+                            vpt_num = getattr(self.model.backbone.params, 'vpt_num', 1)
+                            person_attention = attention_maps[:, :, person_id, (vpt_num+1):]
+                        else:
+                            # Fallback: use CLS token attention to patches
+                            vpt_num = getattr(self.model.backbone.params, 'vpt_num', 1)
+                            person_attention = attention_maps[:, :, 0, (vpt_num+1):]
+                            
+                        return features, person_attention
+                    else:
+                        print(f"WARNING: Unexpected attention shape: {attention_maps.shape}")
+                        return features, None
+                else:
+                    return features, None
+                    
+            except Exception as e:
+                print(f"WARNING: Could not extract attention from backbone: {e}")
+                return features, None
+                
+        except Exception as e:
+            print(f"WARNING: Error in person-specific feature extraction: {e}")
+            return None, None
+    
+    def _extract_prompt_cam_attention(self, attention_tensor, img_shape):
+        """Extract attention map following original Prompt-CAM approach"""
+        try:
+            if attention_tensor is None:
+                return None
+                
+            # attention_tensor should be [batch, heads, patches] following Prompt-CAM format
+            # Average across attention heads to get final attention map
+            if len(attention_tensor.shape) == 3:  # [batch, heads, patches]
+                att_map = attention_tensor[0].mean(0)  # Average across heads
+            elif len(attention_tensor.shape) == 2:  # [heads, patches]
+                att_map = attention_tensor.mean(0)  # Average across heads
+            elif len(attention_tensor.shape) == 1:  # [patches]
+                att_map = attention_tensor
+            else:
+                print(f"WARNING: Unexpected attention tensor shape: {attention_tensor.shape}")
+                return None
+            
+            # Reshape to spatial dimensions
+            # For ViT, we need to determine patch grid size
+            num_patches = len(att_map)
+            grid_size = int(num_patches ** 0.5)
+            
+            if grid_size * grid_size != num_patches:
+                # Try common ViT configurations
+                if num_patches == 196:  # 14x14
+                    grid_size = 14
+                elif num_patches == 256:  # 16x16
+                    grid_size = 16
+                else:
+                    print(f"WARNING: Could not determine grid size for {num_patches} patches")
+                    return None
+            
+            # Reshape to spatial grid
+            att_map_2d = att_map.reshape(grid_size, grid_size).detach().cpu().numpy()
+            
+            # Resize to image dimensions and normalize following Prompt-CAM approach
+            try:
+                import cv2
+                att_map_resized = cv2.resize(att_map_2d, (img_shape[1], img_shape[0]), interpolation=cv2.INTER_CUBIC)
+            except ImportError:
+                # Fallback without cv2
+                from scipy.ndimage import zoom
+                scale_h = img_shape[0] / grid_size
+                scale_w = img_shape[1] / grid_size
+                att_map_resized = zoom(att_map_2d, (scale_h, scale_w))
+            
+            # Normalize to [0, 1] following Prompt-CAM
+            min_val = att_map_resized.min()
+            max_val = att_map_resized.max()
+            if max_val > min_val:
+                att_map_norm = (att_map_resized - min_val) / (max_val - min_val)
+            else:
+                att_map_norm = att_map_resized
+                
+            return att_map_norm
+            
+        except Exception as e:
+            print(f"WARNING: Error extracting Prompt-CAM attention: {e}")
+            return None
+    
+    def _create_prompt_cam_overlay(self, image, attention_map, alpha=0.5):
+        """Create attention overlay following original Prompt-CAM SuperImposeHeatmap function"""
+        try:
+            import cv2
+            
+            # Apply Gaussian blur for smoothing (following original)
+            attention_smoothed = cv2.GaussianBlur(attention_map, (9, 9), 0)
+            
+            # Convert to heatmap (following original)
+            heatmap = (attention_smoothed * 255).astype(np.uint8)
+            heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+            
+            # Convert image to correct format
+            if image.dtype != np.uint8:
+                image_uint8 = (image * 255).astype(np.uint8)
+            else:
+                image_uint8 = image.copy()
+            
+            # Superimpose the heatmap on the original image (following original)
+            result = (image_uint8 * alpha + heatmap * (1 - alpha)).astype(np.uint8)
+            
+            # Convert BGR to RGB for matplotlib
+            result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+            
+            return result_rgb
+            
+        except ImportError:
+            # Fallback without cv2 - simple overlay
+            print("WARNING: cv2 not available, using simple overlay")
+            
+            # Create simple colored overlay
+            heatmap = plt.cm.hot(attention_map)[:, :, :3]  # Remove alpha channel
+            result = image * alpha + heatmap * (1 - alpha)
+            return (result * 255).astype(np.uint8)
+    
 def load_model_from_checkpoint(checkpoint_path, config_path=None):
     """Load twin verification model"""
     
@@ -550,8 +674,8 @@ def main():
                         help='Person ID for first image (for person-specific prompts)')
     parser.add_argument('--person2_id', type=int, default=1,
                         help='Person ID for second image (for person-specific prompts)')
-    parser.add_argument('--threshold', type=float, default=0.5,
-                        help='Verification threshold')
+    parser.add_argument('--threshold', type=float, default=0.32,
+                        help='Verification threshold (default: optimal threshold from evaluation)')
     parser.add_argument('--output', type=str, 
                         default="/kaggle/working/twin_verification_analysis.png",
                         help='Output path for visualization')
@@ -619,7 +743,7 @@ def kaggle_twin_analysis():
         model = load_model_from_checkpoint(checkpoint_path)
         interpreter = TwinVerificationInterpreter(model)
         
-        fig, results = interpreter.analyze_twin_verification(img1_path, img2_path)
+        fig, results = interpreter.analyze_twin_verification(img1_path, img2_path, threshold=0.32)
         
         plt.savefig("/kaggle/working/twin_analysis_example.png", dpi=300, bbox_inches='tight')
         plt.show()
