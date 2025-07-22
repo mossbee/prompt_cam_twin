@@ -108,14 +108,16 @@ class TwinAttentionVisualizer:
             # Forward pass for first image
             self.attention_maps.clear()
             self.feature_maps.clear()
-            features1 = self.model.extract_features(img1_tensor, person1_id)
+            person1_tensor = torch.tensor([person1_id], device=self.device)
+            features1 = self.model.extract_features(img1_tensor, person1_tensor)
             attention1 = dict(self.attention_maps)
             features_map1 = dict(self.feature_maps)
             
             # Forward pass for second image
             self.attention_maps.clear()
             self.feature_maps.clear()
-            features2 = self.model.extract_features(img2_tensor, person2_id)
+            person2_tensor = torch.tensor([person2_id], device=self.device)
+            features2 = self.model.extract_features(img2_tensor, person2_tensor)
             attention2 = dict(self.attention_maps)
             features_map2 = dict(self.feature_maps)
             
