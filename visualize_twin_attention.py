@@ -8,8 +8,9 @@ This script allows you to:
 3. See what the model focuses on to distinguish between twins
 """
 
-import os
 import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import torch
 import torch.nn.functional as F
 import numpy as np
