@@ -66,7 +66,10 @@ class TwinAttentionVisualizer:
         
         def feature_hook(name):
             def hook(module, input, output):
-                self.feature_maps[name] = output.detach()
+                if isinstance(output, tuple):
+                    self.feature_maps[name] = output[0].detach()
+                else:
+                    self.feature_maps[name] = output.detach()
             return hook
         
         # Register hooks for backbone layers
