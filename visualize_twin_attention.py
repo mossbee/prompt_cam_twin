@@ -268,11 +268,18 @@ class TwinAttentionVisualizer:
             
             # Process attention maps
             if len(attention1.shape) == 4:
-                att_map1 = attention1[0].mean(0)[0, 1:].reshape(14, 14)
-                att_map2 = attention2[0].mean(0)[0, 1:].reshape(14, 14)
+                # [batch, heads, seq_len, seq_len]
+                attn = attention1[0].mean(0)[0, 1:]
+                grid_size = int((attn.shape[0]) ** 0.5)
+                att_map1 = attn.reshape(grid_size, grid_size)
+                attn2 = attention2[0].mean(0)[0, 1:]
+                att_map2 = attn2.reshape(grid_size, grid_size)
             else:
-                att_map1 = attention1[0][0, 1:].reshape(14, 14)
-                att_map2 = attention2[0][0, 1:].reshape(14, 14)
+                attn = attention1[0][0, 1:]
+                grid_size = int((attn.shape[0]) ** 0.5)
+                att_map1 = attn.reshape(grid_size, grid_size)
+                attn2 = attention2[0][0, 1:]
+                att_map2 = attn2.reshape(grid_size, grid_size)
             
             # Resize and normalize
             att_map1 = cv2.resize(att_map1.cpu().numpy(), (224, 224))
