@@ -4,9 +4,9 @@ import timm
 import torch
 from model.vision_transformer import VisionTransformerPETL
 from model.twin_prompt_cam import TwinPromptCAM, TwinPromptCAMConfig
-from utils.log_utils import log_model_info
+from .log_utils import log_model_info
 from timm.data import resolve_data_config
-from utils.setup_logging import get_logger
+from .setup_logging import get_logger
 
 logger = get_logger("Prompt_CAM")
 
