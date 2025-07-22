@@ -2,8 +2,6 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tkinter.constants import RAISED
-
 import timm
 import torch
 from model.vision_transformer import VisionTransformerPETL
