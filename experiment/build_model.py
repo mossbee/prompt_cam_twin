@@ -1,12 +1,16 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tkinter.constants import RAISED
 
 import timm
 import torch
 from model.vision_transformer import VisionTransformerPETL
 from model.twin_prompt_cam import TwinPromptCAM, TwinPromptCAMConfig
-from .log_utils import log_model_info
+from utils.log_utils import log_model_info
 from timm.data import resolve_data_config
-from .setup_logging import get_logger
+from utils.setup_logging import get_logger
 
 logger = get_logger("Prompt_CAM")
 
